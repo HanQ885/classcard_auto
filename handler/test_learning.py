@@ -1,91 +1,115 @@
 import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import (
-    NoSuchElementException,
+
+from handler.common import (
+    answer_for_text,
+    click_answer_choice,
+    click_by_text,
+    click_element,
+    element_text,
+    fill_current_answer,
+    is_done,
+    is_visible,
+    open_learning_mode,
+    try_submit_or_next,
+    type_answer,
 )
 
 
 class TestLearning:
     def __init__(self, driver: webdriver.Chrome):
-        self.driver = driver  # webdriver
+        self.driver = driver
 
-    def run(self, num_d: int, word_d: list) -> None:  # 핸들러 실행
+    def run(self, num_d: int, word_d: list) -> None:
         driver = self.driver
-        da_e, da_k, _ = word_d
-        driver.find_element(
-            By.XPATH, "/html/body/div[2]/div/div[2]/div[2]/div"
-        ).click()  # 세트 화면에서 테스트 학습 버튼 클릭
-        time.sleep(1)
-        driver.find_element(  # 테스트 학습 시작 버튼 클릭
+        open_learning_mode(
+            driver,
+            ("테스트", "테스트학습", "Test"),
+            entry_locators=(
+                (By.XPATH, "/html/body/div[2]/div/div[2]/div[2]/div"),
+            ),
+            start_locators=(
+                (By.CSS_SELECTOR, "#wrapper-test > div > div.quiz-start-div > div.layer.retry-layer.box > div.m-t-xl > a"),
+                (By.CSS_SELECTOR, "#wrapper-test > div > div.quiz-start-div > div.layer.prepare-layer.box.bg-gray.text-white > div.text-center.m-t-md > a"),
+                (By.CSS_SELECTOR, "#alertModal > div.modal-dialog > div > div.text-center.m-t-xl > a"),
+            ),
+        )
+
+        idle_rounds = 0
+        max_steps = max(50, num_d * 5)
+        for _ in range(max_steps):
+            if is_done(driver):
+                print("완료 화면을 감지했습니다.")
+                return
+            if self.answer_visible_test_form(word_d):
+                idle_rounds = 0
+            elif fill_current_answer(driver, word_d):
+                idle_rounds = 0
+            elif click_answer_choice(driver, word_d, guess_unknown=True):
+                idle_rounds = 0
+            elif try_submit_or_next(driver):
+                idle_rounds = 0
+            else:
+                idle_rounds += 1
+                print("현재 테스트 문항에서 답을 찾지 못했습니다.")
+                if idle_rounds >= 4:
+                    return
+            time.sleep(0.8)
+
+    def answer_visible_test_form(self, word_d: list) -> bool:
+        driver = self.driver
+        questions = []
+        for selector in ("#testForm > div", "[id='testForm'] > div", ".quiz-list > div", ".test-list > div"):
+            questions.extend(driver.find_elements(By.CSS_SELECTOR, selector))
+
+        progress = False
+        for question in questions:
+            if not is_visible(question):
+                continue
+            answer = answer_for_text(element_text(question), word_d)
+            if not answer:
+                continue
+            if self.fill_question_input(question, answer):
+                progress = True
+                continue
+            if self.click_question_choice(question, answer):
+                progress = True
+
+        if progress:
+            click_by_text(driver, ("제출", "채점", "채점하기", "확인", "다음"), max_text_length=120)
+        return progress
+
+    def fill_question_input(self, question, answer: str) -> bool:
+        for input_element in question.find_elements(
             By.CSS_SELECTOR,
-            "#wrapper-test > div > div.quiz-start-div > div.layer.retry-layer.box > div.m-t-xl > a",
-        ).click()
-        time.sleep(0.5)
-        driver.find_element(  # 테스트 학습 시작 버튼 클릭
-            By.CSS_SELECTOR,
-            "#wrapper-test > div > div.quiz-start-div > div.layer.prepare-layer.box.bg-gray.text-white > div.text-center.m-t-md > a",
-        ).click()
-        time.sleep(0.5)
-        try:
-            driver.find_element(  # 테스트 학습 유의사항 확인 버튼 클릭
-                By.CSS_SELECTOR,
-                "#alertModal > div.modal-dialog > div > div.text-center.m-t-xl > a",
-            ).click()
-        except:
-            pass
-        time.sleep(1.5)
-        num_d = driver.find_element(
-            By.XPATH, "/html/body/div[2]/div/div[2]/div[1]/div/span[2]/span"
-        ).text
-        for i in range(1, int(num_d) + 1):
-            cash_d = driver.find_element(  # 카드 앞면 단어 가져오기
-                By.XPATH,
-                f"//*[@id='testForm']/div[{i}]/div/div[1]/div[2]/div[2]/div/div",
-            ).text.split("\n")[0]
-            element = driver.find_element(  # 카드 앞면 클릭
-                By.XPATH,
-                f"//*[@id='testForm']/div[{i}]/div/div[1]/div[2]/div[2]/div/div",
-            )
-            element.click()
-
-            time.sleep(1)
-
+            "input:not([type]),input[type='text'],input[type='search'],textarea,[contenteditable='true']",
+        ):
             try:
-                if cash_d.upper() != cash_d.lower():
-                    try:
-                        text = da_k[da_e.index(cash_d)]
-                    except ValueError:
-                        text = da_e[da_k.index(cash_d)]
-                else:
-                    text = da_e[da_k.index(cash_d)]
-            except ValueError:
-                text = "모름"
+                if not input_element.is_displayed() or not input_element.is_enabled():
+                    continue
+                current = input_element.get_attribute("value") or element_text(input_element)
+                if current:
+                    continue
+                type_answer(input_element, answer)
+                print(f"테스트 입력: {answer}")
+                return True
+            except Exception:
+                continue
+        return False
 
+    def click_question_choice(self, question, answer: str) -> bool:
+        answer_norm = answer.strip().casefold()
+        for element in question.find_elements(By.CSS_SELECTOR, "button,a,[role='button'],label,div,span"):
             try:
-                input_tag = driver.find_element(
-                    By.XPATH,
-                    f"//*[@id='testForm']/div[{i}]/div/div[2]/div/div[2]/div[1]/input",
-                )
-                submit_tag = driver.find_element(
-                    By.XPATH,
-                    f"//*[@id='testForm']/div[{i}]/div/div[2]/div/div[2]/div[2]/a",
-                )
-
-                input_tag.click()  # 입력창 클릭
-                input_tag.send_keys(text)  # 입력창에 단어 입력
-                submit_tag.click()  # 제출 버튼 클릭
-            except NoSuchElementException:  # 입력창이 없으면
-                box_items = driver.find_element(  # 카드 뒷면 선택지 가져오기
-                    By.XPATH,
-                    f"/html/body/div[2]/div/div[2]/div[2]/form/div[{i}]/div/div[2]/div/div[1]",
-                )
-                box_items = box_items.find_elements(By.TAG_NAME, "div")
-                if text == "모름":
-                    print("모르는 단어 감지됨")
-                    box_items[0].click()
-                for box_item in box_items:
-                    if box_item.text == text:
-                        box_item.click()
-                        break
-            time.sleep(2)
+                if not element.is_displayed() or not element.is_enabled():
+                    continue
+                text = element_text(element)
+                if text.strip().casefold() == answer_norm:
+                    click_element(self.driver, element)
+                    print(f"테스트 선택: {text}")
+                    return True
+            except Exception:
+                continue
+        return False
