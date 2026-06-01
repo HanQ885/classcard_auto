@@ -2,13 +2,13 @@ import time
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 
 from handler.common import (
     answer_for_text,
     click_answer_choice,
     click_by_text,
-    click_element,
     element_text,
     fill_current_answer,
     is_done,
@@ -50,6 +50,8 @@ class TestLearning:
                 return
             if self.advance_after_feedback():
                 idle_rounds = 0
+            elif self.click_prompt_card(word_d):
+                idle_rounds = 0
             elif self.answer_current_card_grid(word_d):
                 idle_rounds = 0
             elif self.answer_visible_test_form(word_d):
@@ -82,7 +84,7 @@ class TestLearning:
                 continue
             prompt_element, prompt_text, answer = prompt
             try:
-                click_element(driver, prompt_element)
+                self.click_test_element(prompt_element)
                 time.sleep(0.15)
             except Exception:
                 pass
@@ -161,6 +163,61 @@ class TestLearning:
             return matches[0][2]
         return None
 
+    def click_prompt_card(self, word_d: list) -> bool:
+        if self.has_visible_answer_input():
+            return False
+
+        options = self.visible_card_options(word_d)
+        if len(options) > 1:
+            return False
+
+        candidates = []
+        seen = set()
+        for element in self.driver.find_elements(By.CSS_SELECTOR, "#wrapper-test div,#wrapper-test span,body div,body span"):
+            try:
+                if element.id in seen or not element.is_displayed() or not element.is_enabled():
+                    continue
+                text = element_text(element)
+                if not text or len(text) > 180:
+                    continue
+                matches = side_matches(text, word_d)
+                if len(matches) != 1:
+                    continue
+                rect = element.rect
+                if rect.get("width", 0) < 45 or rect.get("height", 0) < 20:
+                    continue
+                clickable = self.closest_clickable_card(element)
+                seen.add(getattr(clickable, "id", element.id))
+                y, x = rect_sort_key(clickable)
+                candidates.append((y, x, len(text), clickable, text))
+            except Exception:
+                continue
+
+        if not candidates:
+            return False
+
+        _y, _x, _length, element, text = sorted(candidates)[0]
+        if self.click_test_element(element):
+            print(f"test prompt card click: {text}")
+            time.sleep(0.7)
+            return True
+        return False
+
+    def has_visible_answer_input(self) -> bool:
+        for input_element in self.driver.find_elements(
+            By.CSS_SELECTOR,
+            "input:not([type]),input[type='text'],input[type='search'],textarea,[contenteditable='true']",
+        ):
+            try:
+                input_type = (input_element.get_attribute("type") or "").lower()
+                if input_type in {"hidden", "submit", "button", "checkbox", "radio"}:
+                    continue
+                if input_element.is_displayed() and input_element.is_enabled():
+                    return True
+            except Exception:
+                continue
+        return False
+
     def answer_current_card_grid(self, word_d: list) -> bool:
         options = self.visible_card_options(word_d)
         if not options:
@@ -176,7 +233,7 @@ class TestLearning:
         answer_norm = norm(answer)
         for element, text, value, _opposite in options:
             if norm(value) == answer_norm or self.choice_matches_answer(text, answer):
-                click_element(self.driver, element)
+                self.click_test_element(element)
                 print(f"test card: {prompt_text} -> {text}")
                 time.sleep(0.5)
                 self.advance_after_feedback()
@@ -279,7 +336,7 @@ class TestLearning:
             return False
         prompt_element, prompt_text, answer = prompt
         try:
-            click_element(self.driver, prompt_element)
+            self.click_test_element(prompt_element)
             time.sleep(0.15)
         except Exception:
             pass
@@ -318,7 +375,7 @@ class TestLearning:
                     continue
                 text = element_text(element)
                 if self.choice_matches_answer(text, answer):
-                    click_element(self.driver, self.closest_clickable_card(element))
+                    self.click_test_element(self.closest_clickable_card(element))
                     print(f"테스트 선택: {text}")
                     return True
             except Exception:
@@ -346,7 +403,7 @@ class TestLearning:
                     continue
                 text = element_text(element)
                 if self.choice_matches_answer(text, answer):
-                    click_element(self.driver, self.closest_clickable_card(element))
+                    self.click_test_element(self.closest_clickable_card(element))
                     return True
             except Exception:
                 continue
@@ -362,6 +419,49 @@ class TestLearning:
         if len(answer_norm) >= 3 and answer_norm in text_norm and len(text_norm) <= len(answer_norm) + 80:
             return True
         return False
+
+    def click_test_element(self, element) -> bool:
+        try:
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+        except Exception:
+            pass
+
+        clicked = False
+        try:
+            ActionChains(self.driver).move_to_element(element).pause(0.05).click().perform()
+            clicked = True
+        except Exception:
+            try:
+                element.click()
+                clicked = True
+            except Exception:
+                try:
+                    self.driver.execute_script("arguments[0].click();", element)
+                    clicked = True
+                except Exception:
+                    pass
+
+        try:
+            self.driver.execute_script(
+                """
+                const el = arguments[0];
+                for (const type of ['pointerdown', 'mousedown', 'mouseup', 'click']) {
+                  el.dispatchEvent(new MouseEvent(type, {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                  }));
+                }
+                """,
+                element,
+            )
+            clicked = True
+        except Exception:
+            pass
+
+        if clicked:
+            time.sleep(0.25)
+        return clicked
 
     def advance_after_feedback(self) -> bool:
         try:
