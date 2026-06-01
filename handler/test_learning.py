@@ -2,6 +2,7 @@ import time
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 
 from handler.common import (
     answer_for_text,
@@ -47,11 +48,15 @@ class TestLearning:
             if is_done(driver):
                 print("완료 화면을 감지했습니다.")
                 return
-            if self.answer_visible_test_form(word_d):
+            if self.advance_after_feedback():
+                idle_rounds = 0
+            elif self.answer_current_card_grid(word_d):
+                idle_rounds = 0
+            elif self.answer_visible_test_form(word_d):
                 idle_rounds = 0
             elif fill_current_answer(driver, word_d):
                 idle_rounds = 0
-            elif click_answer_choice(driver, word_d, guess_unknown=True):
+            elif click_answer_choice(driver, word_d, guess_unknown=False):
                 idle_rounds = 0
             elif try_submit_or_next(driver):
                 idle_rounds = 0
@@ -156,11 +161,128 @@ class TestLearning:
             return matches[0][2]
         return None
 
+    def answer_current_card_grid(self, word_d: list) -> bool:
+        options = self.visible_card_options(word_d)
+        if not options:
+            return False
+
+        option_values = {norm(value) for _element, _text, value, _answer in options}
+        prompt = self.find_prompt_for_current_grid(word_d, option_values)
+        if not prompt:
+            self.print_visible_options(options)
+            return False
+
+        prompt_text, answer = prompt
+        answer_norm = norm(answer)
+        for element, text, value, _opposite in options:
+            if norm(value) == answer_norm or self.choice_matches_answer(text, answer):
+                click_element(self.driver, element)
+                print(f"test card: {prompt_text} -> {text}")
+                time.sleep(0.5)
+                self.advance_after_feedback()
+                return True
+        return False
+
+    def visible_card_options(self, word_d: list) -> list:
+        options = []
+        seen = set()
+        for element in self.driver.find_elements(By.CSS_SELECTOR, "button,a,[role='button'],label,[tabindex],div,span"):
+            try:
+                if element.id in seen or not element.is_displayed() or not element.is_enabled():
+                    continue
+                text = element_text(element)
+                if not text or len(text) > 180:
+                    continue
+                matches = side_matches(text, word_d)
+                if len(matches) != 1:
+                    continue
+                rect = element.rect
+                if rect.get("width", 0) < 40 or rect.get("height", 0) < 20:
+                    continue
+                value, _side, answer = matches[0]
+                clickable = self.closest_clickable_card(element)
+                key = getattr(clickable, "id", element.id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                options.append((clickable, text, value, answer))
+            except Exception:
+                continue
+        options.sort(key=lambda item: (len(norm(item[1])), *rect_sort_key(item[0])))
+        return options
+
+    def closest_clickable_card(self, element):
+        current = element
+        for _ in range(4):
+            try:
+                parent = current.find_element(By.XPATH, "..")
+                if not parent or not parent.is_displayed():
+                    break
+                current_rect = current.rect
+                parent_rect = parent.rect
+                parent_text = element_text(parent)
+                grows_like_card = (
+                    parent_rect.get("width", 0) >= current_rect.get("width", 0)
+                    and parent_rect.get("height", 0) >= current_rect.get("height", 0)
+                    and parent_rect.get("height", 0) <= 280
+                )
+                if grows_like_card and parent_text and norm(element_text(element)) in norm(parent_text):
+                    current = parent
+                    continue
+                break
+            except Exception:
+                break
+        return current
+
+    def find_prompt_for_current_grid(self, word_d: list, option_values: set[str]) -> tuple[str, str] | None:
+        candidates = []
+        for element in self.driver.find_elements(By.CSS_SELECTOR, "body *"):
+            try:
+                text = self.dom_text(element)
+                if not text or len(text) > 220:
+                    continue
+                matches = side_matches(text, word_d)
+                if len(matches) != 1:
+                    continue
+                value, _side, answer = matches[0]
+                value_norm = norm(value)
+                answer_norm = norm(answer)
+                if value_norm in option_values:
+                    continue
+                if answer_norm not in option_values:
+                    continue
+                visibility_score = 0 if element.is_displayed() else 30
+                exact_score = 0 if norm(text) == value_norm else 50
+                y, x = rect_sort_key(element)
+                candidates.append((visibility_score + exact_score, y, x, len(text), value, answer))
+            except Exception:
+                continue
+        if not candidates:
+            return None
+        _score, _y, _x, _length, value, answer = sorted(candidates)[0]
+        return value, answer
+
+    def dom_text(self, element) -> str:
+        try:
+            return " ".join((element.get_attribute("textContent") or element_text(element)).split())
+        except Exception:
+            return element_text(element)
+
+    def print_visible_options(self, options: list) -> None:
+        values = [text for _element, text, _value, _answer in options[:6]]
+        if values:
+            print("test card options:", " / ".join(values))
+
     def answer_active_question(self, word_d: list) -> bool:
         prompt = self.find_prompt_in_scope(self.driver.find_element(By.TAG_NAME, "body"), word_d)
         if not prompt:
             return False
-        _prompt_element, prompt_text, answer = prompt
+        prompt_element, prompt_text, answer = prompt
+        try:
+            click_element(self.driver, prompt_element)
+            time.sleep(0.15)
+        except Exception:
+            pass
         if self.fill_global_input(answer):
             print(f"테스트 문제: {prompt_text} -> 입력: {answer}")
             self.click_test_submit()
@@ -196,7 +318,7 @@ class TestLearning:
                     continue
                 text = element_text(element)
                 if self.choice_matches_answer(text, answer):
-                    click_element(self.driver, element)
+                    click_element(self.driver, self.closest_clickable_card(element))
                     print(f"테스트 선택: {text}")
                     return True
             except Exception:
@@ -224,7 +346,7 @@ class TestLearning:
                     continue
                 text = element_text(element)
                 if self.choice_matches_answer(text, answer):
-                    click_element(self.driver, element)
+                    click_element(self.driver, self.closest_clickable_card(element))
                     return True
             except Exception:
                 continue
@@ -240,6 +362,40 @@ class TestLearning:
         if len(answer_norm) >= 3 and answer_norm in text_norm and len(text_norm) <= len(answer_norm) + 80:
             return True
         return False
+
+    def advance_after_feedback(self) -> bool:
+        try:
+            body = self.driver.find_element(By.TAG_NAME, "body")
+            text = body.text
+        except Exception:
+            return False
+        if "정답" not in text and "오답" not in text:
+            return False
+
+        before = self.page_signature()
+        for _ in range(6):
+            if click_by_text(self.driver, ("다음", "계속", "확인", "next", "continue"), max_text_length=80):
+                time.sleep(0.4)
+            try:
+                body.send_keys(Keys.ENTER)
+                time.sleep(0.2)
+                body.send_keys(Keys.SPACE)
+                time.sleep(0.2)
+                body.send_keys(Keys.ARROW_RIGHT)
+                time.sleep(0.2)
+            except Exception:
+                pass
+            if self.page_signature() != before:
+                return True
+        return True
+
+    def page_signature(self) -> str:
+        try:
+            text = self.driver.find_element(By.TAG_NAME, "body").text
+        except Exception:
+            return ""
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return "|".join(lines[:14])
 
     def click_test_submit(self) -> bool:
         return click_by_text(
