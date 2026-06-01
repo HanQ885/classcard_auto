@@ -289,7 +289,16 @@ def open_target_set(driver: webdriver.Chrome, args: argparse.Namespace) -> None:
 
 def element_text(element: WebElement) -> str:
     try:
-        return clean_text(element.text or element.get_attribute("value") or "")
+        values = [
+            element.text,
+            element.get_attribute("value"),
+            element.get_attribute("aria-label"),
+            element.get_attribute("title"),
+            element.get_attribute("data-original-title"),
+            element.get_attribute("href"),
+            element.get_attribute("class"),
+        ]
+        return clean_text(" ".join(value for value in values if value))
     except Exception:
         return ""
 
@@ -308,19 +317,24 @@ def click_by_text(
     max_text_length: int = 80,
 ) -> bool:
     label_norms = tuple(norm(label) for label in labels)
-    elements = driver.find_elements(By.CSS_SELECTOR, "a,button,[role='button'],input,div,span")
-    for element in elements:
-        if not is_clickable_candidate(element, max_text_length=max_text_length):
-            continue
-        text = norm(element_text(element))
-        if any(label in text for label in label_norms):
-            try:
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-                element.click()
-                time.sleep(0.4)
-                return True
-            except Exception:
+    selectors = (
+        "a,button,[role='button'],input",
+        "div,span",
+    )
+    for selector in selectors:
+        elements = driver.find_elements(By.CSS_SELECTOR, selector)
+        for element in elements:
+            if not is_clickable_candidate(element, max_text_length=max_text_length):
                 continue
+            text = norm(element_text(element))
+            if any(label in text for label in label_norms):
+                try:
+                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+                    element.click()
+                    time.sleep(0.4)
+                    return True
+                except Exception:
+                    continue
     return False
 
 
@@ -421,7 +435,7 @@ def enter_answer(driver: webdriver.Chrome, cards: list[Card]) -> bool:
 
 
 def prepare_learning(driver: webdriver.Chrome, labels: tuple[str, ...], args: argparse.Namespace) -> None:
-    if not click_by_text(driver, labels, max_text_length=40):
+    if not click_by_text(driver, labels, max_text_length=240):
         print("학습 버튼을 자동으로 찾지 못했습니다. Chrome에서 해당 학습으로 들어간 뒤 Enter를 누르세요.")
         input()
     time.sleep(args.delay)
