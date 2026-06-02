@@ -45,14 +45,15 @@ class TestLearning:
         idle_rounds = 0
         max_steps = max(50, num_d * 5)
         for _ in range(max_steps):
+            self.prepare_test_focus()
             if is_done(driver):
                 print("완료 화면을 감지했습니다.")
                 return
             if self.advance_after_feedback():
                 idle_rounds = 0
-            elif self.click_prompt_card(word_d):
-                idle_rounds = 0
             elif self.answer_current_card_grid(word_d):
+                idle_rounds = 0
+            elif self.click_prompt_card(word_d):
                 idle_rounds = 0
             elif self.answer_visible_test_form(word_d):
                 idle_rounds = 0
@@ -166,6 +167,8 @@ class TestLearning:
     def click_prompt_card(self, word_d: list) -> bool:
         if self.has_visible_answer_input():
             return False
+        if self.has_structural_answer_choices():
+            return False
 
         options = self.visible_card_options(word_d)
         if len(options) > 1:
@@ -217,6 +220,30 @@ class TestLearning:
             except Exception:
                 continue
         return False
+
+    def has_structural_answer_choices(self) -> bool:
+        try:
+            count = self.driver.execute_script(
+                """
+                const root = document.querySelector('#wrapper-test') || document.body;
+                const nodes = [...root.querySelectorAll(
+                  '[onclick], [data-idx], [data-answer], [class*="answer"], [class*="choice"], button, a, label, li'
+                )];
+                return nodes.filter((el) => {
+                  const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+                  const rect = el.getBoundingClientRect();
+                  const style = window.getComputedStyle(el);
+                  if (!text || text === '&nbsp;' || text === '\u00a0') return false;
+                  if (style.display === 'none' || style.visibility === 'hidden') return false;
+                  if (rect.width < 40 || rect.height < 20) return false;
+                  if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
+                  return true;
+                }).length;
+                """
+            )
+            return int(count or 0) > 1
+        except Exception:
+            return False
 
     def answer_current_card_grid(self, word_d: list) -> bool:
         options = self.visible_card_options(word_d)
@@ -462,6 +489,27 @@ class TestLearning:
         if clicked:
             time.sleep(0.25)
         return clicked
+
+    def prepare_test_focus(self) -> None:
+        try:
+            self.driver.execute_script(
+                """
+                const active = document.activeElement;
+                if (active && active.closest && active.closest('[aria-hidden="true"]')) {
+                  active.blur();
+                }
+                for (const modal of document.querySelectorAll('.modal[aria-hidden="true"], #alertModal[aria-hidden="true"]')) {
+                  modal.style.pointerEvents = 'none';
+                }
+                const wrapper = document.querySelector('#wrapper-test');
+                if (wrapper) {
+                  wrapper.setAttribute('tabindex', '-1');
+                  wrapper.focus({preventScroll: true});
+                }
+                """
+            )
+        except Exception:
+            pass
 
     def advance_after_feedback(self) -> bool:
         try:
