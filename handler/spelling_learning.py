@@ -1,62 +1,50 @@
 import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import (
-    NoSuchElementException,
+
+from handler.common import (
+    click_answer_choice,
+    fill_current_answer,
+    is_done,
+    open_learning_mode,
+    try_submit_or_next,
 )
 
 
 class SpellingLearning:
     def __init__(self, driver: webdriver.Chrome):
-        self.driver = driver  # webdriver
+        self.driver = driver
 
-    def run(self, num_d: int, word_d: list) -> None:  # 핸들러 실행
+    def run(self, num_d: int, word_d: list) -> None:
         driver = self.driver
-        da_e, da_k, _ = word_d
-        driver.find_element(
-            By.XPATH,
-            "/html/body/div[2]/div/div[2]/div[1]/div[3]",
-        ).click()  # 스펠학습 진입 버튼
-        time.sleep(1)
-        driver.find_element(
-            By.XPATH,
-            "/html/body/div[2]/div[2]/div/div/div/div[4]/a",
-        ).click()  # 스펠학습 시작 버튼
-        time.sleep(1)
-        try:
-            for i in range(1, num_d):
-                cash_d = driver.find_element(
-                    By.XPATH,
-                    f"//*[@id='wrapper-learn']/div[1]/div/div[2]/div[2]/div[{i}]/div[1]/div/div/div/div[1]/span",
-                ).text.split("\n")[0]
-                try:
-                    if cash_d.upper() != cash_d.lower():
-                        try:
-                            text = da_k[da_e.index(cash_d)]
-                        except ValueError:
-                            text = da_e[da_k.index(cash_d)]
-                    else:
-                        text = da_e[da_k.index(cash_d)]
-                except ValueError:
-                    text = "모름"
-                    print("모르는 단어 감지됨")
-                in_tag = driver.find_element(
-                    By.XPATH,
-                    f"/html/body/div[2]/div[1]/div/div[2]/div[2]/div[{i}]/div[2]/div/div/div/div[2]/input",
-                )
-                in_tag.click()
-                in_tag.send_keys(text)
-                driver.find_element(
-                    By.XPATH, "//*[@id='wrapper-learn']/div/div/div[3]"
-                ).click()
-                time.sleep(1.5)
-                try:
-                    driver.find_element(
-                        By.XPATH, "//*[@id='wrapper-learn']/div/div/div[3]/div[2]"
-                    ).click()
-                except:
-                    pass
-                i += 1
-                time.sleep(0.5)
-        except NoSuchElementException:
-            pass
+        open_learning_mode(
+            driver,
+            ("스펠학습", "스펠 학습", "Spelling"),
+            entry_locators=(
+                (By.XPATH, "/html/body/div[2]/div/div[2]/div[1]/div[3]"),
+            ),
+            start_locators=(
+                (By.XPATH, "/html/body/div[2]/div[2]/div/div/div/div[4]/a"),
+                (By.CSS_SELECTOR, "#wrapper-learn > div.start-opt-body a"),
+            ),
+        )
+
+        idle_rounds = 0
+        max_steps = max(40, num_d * 4)
+        for _ in range(max_steps):
+            if is_done(driver):
+                print("완료 화면을 감지했습니다.")
+                return
+            if fill_current_answer(driver, word_d):
+                idle_rounds = 0
+            elif click_answer_choice(driver, word_d, guess_unknown=True):
+                idle_rounds = 0
+            elif try_submit_or_next(driver):
+                idle_rounds = 0
+            else:
+                idle_rounds += 1
+                print("현재 스펠 화면에서 입력할 답을 찾지 못했습니다.")
+                if idle_rounds >= 4:
+                    return
+            time.sleep(0.8)

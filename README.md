@@ -1,57 +1,67 @@
-# 클래스카드 오토 매크로
+# 클래스카드 자동화 QA 도구
 
-> [!Warning]
-> 학습 목적으로만 사용해주세요.<br>
-> 해당 프로그램을 사용하여 발생한 모든 문제는 사용자에게 책임이 있습니다.
+ClassCard 현재 UI를 기준으로 원본 매크로 구조를 유지하며 학습 과정을 자동화하는 내부 QA용 스크립트입니다.
 
-## 시연영상
+지원 기능:
 
-https://github.com/kimjunsung04/classcard_auto/assets/70435510/3261a3ad-7820-4796-9cfd-48d01957f699
+- 세트 페이지에서 단어/뜻 목록 수집
+- 암기학습 자동 진행
+- 리콜학습 자동 선택
+- 스펠학습 자동 입력
+- 매칭 게임 자동 매칭
+- 테스트 자동 입력/선택
+- 학습 기록 API 요청
+- CSV 내보내기
 
-## Restrictions / 제한
+## 설치
 
- - 단어 세트에서만 가능하고 문장, 드릴 등 다른 세트에서는 사용 불가합니다. 
-
-## Getting Started / 어떻게 시작하나요?
-
-### Prerequisites / 선행 조건
-
-아래 사항들이 설치가 되어있어야합니다.
-
-```
-Python, Chrome
-```
-
-### Installing / 설치
-
-1. 초록색 'Code' 버튼을 눌러 코드를 다운받습니다. 
-2. 터미널을 열어 파이썬 모듈을 설치합니다. 
-아래 명령어로 프로젝트에 필요한 파이썬 모듈들을 설치할 수 있습니다.
-
-```
+```bash
 pip install -r requirements.txt
 ```
 
-3. 구동은 아래 명령어로 가능합니다.
+Chrome이 설치되어 있어야 합니다. Selenium 4의 Selenium Manager가 ChromeDriver를 자동으로 맞춥니다.
 
+## VS Code에서 실행
+
+이미 가상환경을 켠 상태라면 바로 실행합니다.
+
+```bash
+python main.py --manual-login
 ```
-python main.py
+
+메뉴가 나오면 원하는 번호를 누릅니다.
+
+- `1`: 암기학습 자동화
+- `2`: 리콜학습 자동화
+- `3`: 스펠학습 자동화
+- `4`: 테스트학습 자동화
+- `5`-`8`: 학습 기록 API 요청
+- `9`: 매칭 게임 자동화
+- `10`: CSV 내보내기
+
+Chrome이 열리면 로그인하고, 목표 세트 페이지까지 이동한 뒤 터미널에서 Enter를 누르면 됩니다.
+
+## 바로 모드 지정
+
+세트 URL을 알고 있으면 메뉴 없이 바로 실행할 수 있습니다.
+
+```bash
+python main.py --mode recall --set-url "https://www.classcard.net/set/세트ID/클래스ID" --manual-login
 ```
 
-## Technologies / 구현방법
+모드 이름:
 
-셀레니움을 이용하여 자동화를 하였습니다.
-리콜, 스펠, 테스트 학습 이전에 단어표를 먼저 학습하고, 
-맞는 단어끼리 매칭하여 정답을 맞추는 방식으로 구현하였습니다.
+- `memory`
+- `recall`
+- `spelling`
+- `matching`
+- `test`
+- `export`
+- `api-memory`
+- `api-recall`
+- `api-spelling`
+- `api-test`
 
-## Issues / 이슈
+## 원본과의 차이
 
-동작에 문제가 있다면 사용환경, 오류코드를 꼭 남겨주세요.
-
-## Contribution / 기여
-
-소스 수정사항이 있다면 Pull requests 로 열어주세요.
-
-## License / 라이센스
-
-이 프로젝트는 MIT License 라이센스가 부여되어 있습니다.
+원본처럼 `main.py`가 로그인/세트/메뉴를 처리하고, `handler` 폴더의 각 학습 파일이 실제 자동화를 담당합니다. 바뀐 ClassCard UI에 맞추기 위해 고정 XPath가 실패하면 버튼 텍스트, 입력칸, 선택지 텍스트를 같이 탐색합니다.
